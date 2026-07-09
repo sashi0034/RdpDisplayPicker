@@ -2,7 +2,9 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -15,9 +17,14 @@ namespace RdpDisplayPicker
         private string _connectionHost = string.Empty;
         private string _rdpText = string.Empty;
         private string _statusText = string.Empty;
+        private readonly AppSettings _settings;
+        private string _currentDisplayKey = string.Empty;
+        private string _currentDisplaySignature = string.Empty;
+        private bool _suppressSettingsSave;
 
         public MainWindow()
         {
+            _settings = LoadSettings();
             InitializeComponent();
             DataContext = this;
             RefreshMonitors();
@@ -40,6 +47,7 @@ namespace RdpDisplayPicker
                 _connectionHost = value;
                 OnPropertyChanged(nameof(ConnectionHost));
                 UpdateRdpText();
+                SaveCurrentSettings();
             }
         }
 
@@ -82,13 +90,22 @@ namespace RdpDisplayPicker
         {
             var selectAll = Monitors.Any(monitor => !monitor.IsSelected);
 
-            foreach (var monitor in Monitors)
+            _suppressSettingsSave = true;
+            try
             {
-                monitor.IsSelected = selectAll;
+                foreach (var monitor in Monitors)
+                {
+                    monitor.IsSelected = selectAll;
+                }
+            }
+            finally
+            {
+                _suppressSettingsSave = false;
             }
 
             UpdateRdpText();
             DrawMonitorMap();
+            SaveCurrentSettings();
         }
 
         private void CopyButton_Click(object sender, RoutedEventArgs e)
@@ -138,33 +155,54 @@ namespace RdpDisplayPicker
 
         private void RefreshMonitors()
         {
+            var hadExistingMonitors = Monitors.Count > 0;
             var selectedDeviceNames = Monitors
                 .Where(monitor => monitor.IsSelected)
                 .Select(monitor => monitor.DeviceName)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            Monitors.Clear();
+            var selectedRdpIds = Monitors
+                .Where(monitor => monitor.IsSelected)
+                .Select(monitor => monitor.RdpId)
+                .ToHashSet();
 
             var screens = Forms.Screen.AllScreens;
+            _currentDisplaySignature = CreateDisplaySignature(screens);
+            _currentDisplayKey = CreateDisplayKey(_currentDisplaySignature);
+            _settings.Profiles.TryGetValue(_currentDisplayKey, out var savedSettings);
+
+            _suppressSettingsSave = true;
+            Monitors.Clear();
+
             for (var i = 0; i < screens.Length; i++)
             {
                 var screen = screens[i];
+                var monitorKey = CreateMonitorKey(screen);
                 var item = new MonitorItem(
                     rdpId: i,
                     deviceName: screen.DeviceName,
+                    monitorKey: monitorKey,
                     bounds: new Int32Rect(screen.Bounds.Left, screen.Bounds.Top, screen.Bounds.Width, screen.Bounds.Height),
                     isPrimary: screen.Primary)
                 {
-                    IsSelected = selectedDeviceNames.Count == 0 || selectedDeviceNames.Contains(screen.DeviceName),
+                    IsSelected = ShouldSelectMonitor(savedSettings, monitorKey, screen.DeviceName, i, hadExistingMonitors, selectedDeviceNames, selectedRdpIds),
                 };
 
                 item.PropertyChanged += MonitorItem_PropertyChanged;
                 Monitors.Add(item);
             }
 
+            if (savedSettings is not null)
+            {
+                _connectionHost = savedSettings.ConnectionHost ?? string.Empty;
+                OnPropertyChanged(nameof(ConnectionHost));
+            }
+
+            _suppressSettingsSave = false;
+
             UpdateRdpText();
             DrawMonitorMap();
-            StatusText = $"{Monitors.Count}台のモニターを検出しました。RDP IDはこのアプリ内の列挙順です。必要なら `mstsc /l` の表示と照合してください。";
+            SaveCurrentSettings();
+            StatusText = $"{Monitors.Count}台のモニターを検出しました。このディスプレイ構成の設定を自動保存します。";
         }
 
         private void MonitorItem_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -176,6 +214,7 @@ namespace RdpDisplayPicker
 
             UpdateRdpText();
             DrawMonitorMap();
+            SaveCurrentSettings();
         }
 
         private void UpdateRdpText()
@@ -321,6 +360,108 @@ namespace RdpDisplayPicker
             }
         }
 
+        private static bool ShouldSelectMonitor(
+            SavedDisplaySettings? savedSettings,
+            string monitorKey,
+            string deviceName,
+            int rdpId,
+            bool hadExistingMonitors,
+            HashSet<string> selectedDeviceNames,
+            HashSet<int> selectedRdpIds)
+        {
+            if (savedSettings is not null)
+            {
+                if (savedSettings.SelectedMonitorKeys.Count > 0)
+                {
+                    return savedSettings.SelectedMonitorKeys.Contains(monitorKey, StringComparer.Ordinal);
+                }
+
+                if (savedSettings.SelectedDeviceNames.Count > 0)
+                {
+                    return savedSettings.SelectedDeviceNames.Contains(deviceName, StringComparer.OrdinalIgnoreCase);
+                }
+
+                return savedSettings.SelectedRdpIds.Contains(rdpId);
+            }
+
+            if (hadExistingMonitors)
+            {
+                return selectedDeviceNames.Contains(deviceName) || selectedRdpIds.Contains(rdpId);
+            }
+
+            return true;
+        }
+
+        private void SaveCurrentSettings()
+        {
+            if (_suppressSettingsSave || string.IsNullOrEmpty(_currentDisplayKey))
+            {
+                return;
+            }
+
+            _settings.LastDisplayKey = _currentDisplayKey;
+            _settings.Profiles[_currentDisplayKey] = new SavedDisplaySettings
+            {
+                DisplaySignature = _currentDisplaySignature,
+                ConnectionHost = ConnectionHost,
+                SelectedMonitorKeys = Monitors.Where(monitor => monitor.IsSelected).Select(monitor => monitor.MonitorKey).ToList(),
+                SelectedDeviceNames = Monitors.Where(monitor => monitor.IsSelected).Select(monitor => monitor.DeviceName).ToList(),
+                SelectedRdpIds = Monitors.Where(monitor => monitor.IsSelected).Select(monitor => monitor.RdpId).ToList(),
+                UpdatedAt = DateTimeOffset.Now,
+            };
+
+            SaveSettings(_settings);
+        }
+
+        private static AppSettings LoadSettings()
+        {
+            try
+            {
+                if (!File.Exists(SettingsPath))
+                {
+                    return new AppSettings();
+                }
+
+                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(SettingsPath, Encoding.UTF8)) ?? new AppSettings();
+            }
+            catch
+            {
+                return new AppSettings();
+            }
+        }
+
+        private static void SaveSettings(AppSettings settings)
+        {
+            var directory = System.IO.Path.GetDirectoryName(SettingsPath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(SettingsPath, json, Encoding.UTF8);
+        }
+
+        private static string SettingsPath => System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "RdpDisplayPicker",
+            "settings.json");
+
+        private static string CreateDisplaySignature(IEnumerable<Forms.Screen> screens)
+        {
+            return string.Join("\n", screens.Select(CreateMonitorKey).Order(StringComparer.Ordinal));
+        }
+
+        private static string CreateMonitorKey(Forms.Screen screen)
+        {
+            return $"{screen.Bounds.Left},{screen.Bounds.Top},{screen.Bounds.Width},{screen.Bounds.Height},{screen.Primary}";
+        }
+
+        private static string CreateDisplayKey(string displaySignature)
+        {
+            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(displaySignature)))[..16];
+        }
+
         private void OnPropertyChanged(string propertyName)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
@@ -331,10 +472,11 @@ namespace RdpDisplayPicker
     {
         private bool _isSelected;
 
-        public MonitorItem(int rdpId, string deviceName, Int32Rect bounds, bool isPrimary)
+        public MonitorItem(int rdpId, string deviceName, string monitorKey, Int32Rect bounds, bool isPrimary)
         {
             RdpId = rdpId;
             DeviceName = deviceName;
+            MonitorKey = monitorKey;
             Bounds = bounds;
             IsPrimary = isPrimary;
         }
@@ -344,6 +486,8 @@ namespace RdpDisplayPicker
         public int RdpId { get; }
 
         public string DeviceName { get; }
+
+        public string MonitorKey { get; }
 
         public Int32Rect Bounds { get; }
 
@@ -367,5 +511,27 @@ namespace RdpDisplayPicker
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
             }
         }
+    }
+
+    public sealed class AppSettings
+    {
+        public string? LastDisplayKey { get; set; }
+
+        public Dictionary<string, SavedDisplaySettings> Profiles { get; set; } = [];
+    }
+
+    public sealed class SavedDisplaySettings
+    {
+        public string? DisplaySignature { get; set; }
+
+        public string? ConnectionHost { get; set; }
+
+        public List<string> SelectedMonitorKeys { get; set; } = [];
+
+        public List<string> SelectedDeviceNames { get; set; } = [];
+
+        public List<int> SelectedRdpIds { get; set; } = [];
+
+        public DateTimeOffset UpdatedAt { get; set; }
     }
 }
