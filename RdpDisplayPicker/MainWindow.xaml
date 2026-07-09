@@ -3,10 +3,135 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:RdpDisplayPicker"
+        xmlns:ui="http://schemas.modernwpf.com/2019"
         mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
-    <Grid>
+        Title="RDP Display Picker" Height="720" Width="1080" MinHeight="620" MinWidth="900"
+        Background="{DynamicResource SystemControlPageBackgroundAltHighBrush}"
+        Foreground="{DynamicResource SystemControlPageTextBaseHighBrush}"
+        FontFamily="Segoe UI Variable Display, Segoe UI"
+        ui:ThemeManager.IsThemeAware="True"
+        ui:WindowHelper.UseModernWindowStyle="True">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
 
+        <DockPanel Grid.Row="0" LastChildFill="False">
+            <StackPanel DockPanel.Dock="Left">
+                <TextBlock Text="RDP Display Picker" FontSize="30" FontWeight="SemiBold" />
+                <TextBlock Text="Windows RDPで使うローカルモニターを選び、selectedmonitors付きの接続を起動します。"
+                           Margin="0,6,0,0" Opacity="0.72" />
+            </StackPanel>
+            <Button DockPanel.Dock="Right" Content="更新" Padding="18,8" Click="RefreshButton_Click" />
+        </DockPanel>
+
+        <Border Grid.Row="1" Margin="0,22,0,16" Padding="18" CornerRadius="12"
+                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel>
+                    <TextBlock Text="接続先PC" FontWeight="SemiBold" />
+                    <TextBox x:Name="HostTextBox" Margin="0,8,0,0" MinWidth="320"
+                             Text="{Binding ConnectionHost, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="空欄の場合はモニター指定だけのRDPファイルを作ります。" />
+                </StackPanel>
+
+                <Button Grid.Column="1" Content="すべて選択" Margin="16,22,0,0" Padding="18,8" Click="SelectAllButton_Click" />
+                <Button Grid.Column="2" Content="設定コピー" Margin="8,22,0,0" Padding="18,8" Click="CopyButton_Click" />
+                <Button Grid.Column="3" Content="RDP起動" Margin="8,22,0,0" Padding="22,8" Click="LaunchButton_Click" />
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.05*" />
+                <ColumnDefinition Width="16" />
+                <ColumnDefinition Width="1.2*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Padding="18" CornerRadius="12"
+                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="モニター" FontSize="20" FontWeight="SemiBold" />
+                    <ListBox Grid.Row="1" Margin="0,14,0,0" ItemsSource="{Binding Monitors}" BorderThickness="0"
+                             Background="Transparent" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Margin="0,0,0,10" Padding="12" CornerRadius="10"
+                                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox VerticalAlignment="Center" IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                        <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="15" />
+                                            <TextBlock Text="{Binding Details}" Margin="0,4,0,0" Opacity="0.72" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="1.05*" />
+                    <RowDefinition Height="16" />
+                    <RowDefinition Height="0.95*" />
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Padding="18" CornerRadius="12"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="配置図" FontSize="20" FontWeight="SemiBold" />
+                        <Border Grid.Row="1" Margin="0,14,0,0" CornerRadius="10"
+                                Background="{DynamicResource SystemControlBackgroundAltHighBrush}">
+                            <Canvas x:Name="MonitorCanvas" SizeChanged="MonitorCanvas_SizeChanged" />
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="2" Padding="18" CornerRadius="12"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="生成されるRDP設定" FontSize="20" FontWeight="SemiBold" />
+                        <TextBox Grid.Row="1" Margin="0,14,0,0" Text="{Binding RdpText, Mode=OneWay}" IsReadOnly="True"
+                                 FontFamily="Consolas" TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto" />
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <TextBlock Grid.Row="3" Margin="0,14,0,0" Text="{Binding StatusText}" Opacity="0.78" />
     </Grid>
 </Window>
