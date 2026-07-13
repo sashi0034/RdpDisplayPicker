@@ -8,7 +8,7 @@ namespace RdpDisplayPicker
     {
         private readonly string _server;
         private readonly int[] _selectedMonitorIds;
-        private readonly AxMSTSCLib.AxMsRdpClient12NotSafeForScripting _rdpClient;
+        private readonly AxMSTSCLib.AxMsRdpClient11NotSafeForScripting _rdpClient;
         private bool _connectStarted;
         private bool _isClosing;
 
@@ -20,7 +20,7 @@ namespace RdpDisplayPicker
             InitializeComponent();
 
             Title = $"{server} - RDP Display Picker";
-            _rdpClient = new AxMSTSCLib.AxMsRdpClient12NotSafeForScripting
+            _rdpClient = new AxMSTSCLib.AxMsRdpClient11NotSafeForScripting
             {
                 Dock = Forms.DockStyle.Fill,
             };
