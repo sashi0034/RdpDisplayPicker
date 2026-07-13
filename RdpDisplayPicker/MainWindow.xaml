@@ -22,7 +22,7 @@
         <DockPanel Grid.Row="0" LastChildFill="False">
             <StackPanel DockPanel.Dock="Left">
                 <TextBlock Text="RDP Display Picker" FontSize="30" FontWeight="SemiBold" />
-                <TextBlock Text="Windows RDPで使うローカルモニターを選び、selectedmonitors付きの接続を起動します。"
+                <TextBlock Text="Windows RDPで使うローカルモニターを選び、ActiveXで直接接続します。"
                            Margin="0,6,0,0" Opacity="0.72" />
             </StackPanel>
             <Button DockPanel.Dock="Right" Content="更新" Padding="18,8" Click="RefreshButton_Click" />
@@ -43,12 +43,12 @@
                     <TextBlock Text="接続先PC" FontWeight="SemiBold" />
                     <TextBox x:Name="HostTextBox" Margin="0,8,0,0" MinWidth="320"
                              Text="{Binding ConnectionHost, UpdateSourceTrigger=PropertyChanged}"
-                             ToolTip="空欄の場合はモニター指定だけのRDPファイルを作ります。" />
+                             ToolTip="ActiveXで接続するリモートPC名またはアドレスを入力します。" />
                 </StackPanel>
 
                 <Button Grid.Column="1" Content="すべて選択" Margin="16,22,0,0" Padding="18,8" Click="SelectAllButton_Click" />
                 <Button Grid.Column="2" Content="設定コピー" Margin="8,22,0,0" Padding="18,8" Click="CopyButton_Click" />
-                <Button Grid.Column="3" Content="RDP起動" Margin="8,22,0,0" Padding="22,8" Click="LaunchButton_Click" />
+                <Button Grid.Column="3" Content="RDP接続" Margin="8,22,0,0" Padding="22,8" Click="LaunchButton_Click" />
             </Grid>
         </Border>
 

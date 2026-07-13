@@ -1,6 +1,5 @@
 ﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
@@ -128,23 +127,31 @@ namespace RdpDisplayPicker
                 return;
             }
 
+            var host = ConnectionHost.Replace("\r", string.Empty).Replace("\n", string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(host))
+            {
+                StatusText = "接続先PCを入力してください。";
+                HostTextBox.Focus();
+                return;
+            }
+
             try
             {
-                var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"RdpDisplayPicker-{DateTime.Now:yyyyMMddHHmmss}.rdp");
-                File.WriteAllText(path, RdpText, Encoding.Unicode);
-
-                Process.Start(new ProcessStartInfo
+                var selectedMonitorIds = Monitors
+                    .Where(monitor => monitor.IsSelected)
+                    .Select(monitor => monitor.RdpId)
+                    .ToArray();
+                var connectionWindow = new RdpConnectionWindow(host, selectedMonitorIds)
                 {
-                    FileName = "mstsc.exe",
-                    Arguments = $"\"{path}\"",
-                    UseShellExecute = false,
-                });
+                    Owner = this,
+                };
+                connectionWindow.Show();
 
-                StatusText = $"RDPを起動しました: {path}";
+                StatusText = $"ActiveXで {host} へのRDP接続を開始しました。";
             }
             catch (Exception ex)
             {
-                StatusText = $"RDP起動に失敗しました: {ex.Message}";
+                StatusText = $"RDP接続ウィンドウの起動に失敗しました: {ex.Message}";
             }
         }
 
