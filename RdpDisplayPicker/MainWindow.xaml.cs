@@ -110,9 +110,8 @@ namespace RdpDisplayPicker
 
         private void CopyButton_Click(object sender, RoutedEventArgs e)
         {
-            if (string.IsNullOrWhiteSpace(RdpText))
+            if (!ValidateMonitorSelection() || string.IsNullOrWhiteSpace(RdpText))
             {
-                StatusText = "コピーできるRDP設定がありません。";
                 return;
             }
 
@@ -122,9 +121,8 @@ namespace RdpDisplayPicker
 
         private void LaunchButton_Click(object sender, RoutedEventArgs e)
         {
-            if (!Monitors.Any(monitor => monitor.IsSelected))
+            if (!ValidateMonitorSelection())
             {
-                StatusText = "RDPで使うモニターを1つ以上選択してください。";
                 return;
             }
 
@@ -171,6 +169,7 @@ namespace RdpDisplayPicker
                 .ToHashSet();
 
             var screens = Forms.Screen.AllScreens;
+            var rdpDisplays = RdpDisplayInfoProvider.GetActiveDisplays();
             _currentDisplaySignature = CreateDisplaySignature(screens);
             _currentDisplayKey = CreateDisplayKey(_currentDisplaySignature);
             _settings.Profiles.TryGetValue(_currentDisplayKey, out var savedSettings);
@@ -182,14 +181,20 @@ namespace RdpDisplayPicker
             {
                 var screen = screens[i];
                 var monitorKey = CreateMonitorKey(screen);
+                if (!rdpDisplays.TryGetValue(screen.DeviceName, out var rdpDisplay))
+                {
+                    throw new InvalidOperationException($"MSTSC用のディスプレイIDを取得できませんでした: {screen.DeviceName}");
+                }
+
                 var item = new MonitorItem(
-                    rdpId: i,
+                    rdpId: rdpDisplay.RdpId,
                     deviceName: screen.DeviceName,
                     monitorKey: monitorKey,
                     bounds: new Int32Rect(screen.Bounds.Left, screen.Bounds.Top, screen.Bounds.Width, screen.Bounds.Height),
+                    rdpBounds: rdpDisplay.Bounds,
                     isPrimary: screen.Primary)
                 {
-                    IsSelected = ShouldSelectMonitor(savedSettings, monitorKey, screen.DeviceName, i, hadExistingMonitors, selectedDeviceNames, selectedRdpIds),
+                    IsSelected = ShouldSelectMonitor(savedSettings, monitorKey, screen.DeviceName, rdpDisplay.RdpId, hadExistingMonitors, selectedDeviceNames, selectedRdpIds),
                 };
 
                 item.PropertyChanged += MonitorItem_PropertyChanged;
@@ -467,6 +472,69 @@ namespace RdpDisplayPicker
             return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(displaySignature)))[..16];
         }
 
+        private bool ValidateMonitorSelection()
+        {
+            var selectedMonitors = Monitors.Where(monitor => monitor.IsSelected).ToArray();
+            if (selectedMonitors.Length == 0)
+            {
+                StatusText = "RDPで使うモニターを1つ以上選択してください。";
+                return false;
+            }
+
+            if (!AreMonitorsContiguous(selectedMonitors))
+            {
+                StatusText = "選択したモニターが連続していません。辺が接するモニターだけを選択してください。";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool AreMonitorsContiguous(IReadOnlyList<MonitorItem> monitors)
+        {
+            if (monitors.Count <= 1)
+            {
+                return true;
+            }
+
+            var connected = new HashSet<MonitorItem> { monitors[0] };
+            var pending = new Queue<MonitorItem>();
+            pending.Enqueue(monitors[0]);
+
+            while (pending.Count > 0)
+            {
+                var current = pending.Dequeue();
+                foreach (var candidate in monitors)
+                {
+                    if (!connected.Contains(candidate) && SharesEdge(current.RdpBounds, candidate.RdpBounds))
+                    {
+                        connected.Add(candidate);
+                        pending.Enqueue(candidate);
+                    }
+                }
+            }
+
+            return connected.Count == monitors.Count;
+        }
+
+        private static bool SharesEdge(Int32Rect first, Int32Rect second)
+        {
+            var firstLeft = (long)first.X;
+            var firstTop = (long)first.Y;
+            var firstRight = firstLeft + first.Width;
+            var firstBottom = firstTop + first.Height;
+            var secondLeft = (long)second.X;
+            var secondTop = (long)second.Y;
+            var secondRight = secondLeft + second.Width;
+            var secondBottom = secondTop + second.Height;
+
+            var overlapsVertically = Math.Max(firstTop, secondTop) < Math.Min(firstBottom, secondBottom);
+            var overlapsHorizontally = Math.Max(firstLeft, secondLeft) < Math.Min(firstRight, secondRight);
+
+            return ((firstRight == secondLeft || secondRight == firstLeft) && overlapsVertically) ||
+                   ((firstBottom == secondTop || secondBottom == firstTop) && overlapsHorizontally);
+        }
+
         private static (string Path, RdpFileResult Result) PrepareRdpFile(string rdpText)
         {
             var directory = System.IO.Path.Combine(
@@ -519,12 +587,19 @@ namespace RdpDisplayPicker
     {
         private bool _isSelected;
 
-        public MonitorItem(int rdpId, string deviceName, string monitorKey, Int32Rect bounds, bool isPrimary)
+        public MonitorItem(
+            int rdpId,
+            string deviceName,
+            string monitorKey,
+            Int32Rect bounds,
+            Int32Rect rdpBounds,
+            bool isPrimary)
         {
             RdpId = rdpId;
             DeviceName = deviceName;
             MonitorKey = monitorKey;
             Bounds = bounds;
+            RdpBounds = rdpBounds;
             IsPrimary = isPrimary;
         }
 
@@ -537,6 +612,8 @@ namespace RdpDisplayPicker
         public string MonitorKey { get; }
 
         public Int32Rect Bounds { get; }
+
+        public Int32Rect RdpBounds { get; }
 
         public bool IsPrimary { get; }
 
