@@ -130,8 +130,7 @@ namespace RdpDisplayPicker
 
             try
             {
-                var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"RdpDisplayPicker-{DateTime.Now:yyyyMMddHHmmss}.rdp");
-                File.WriteAllText(path, RdpText, Encoding.Unicode);
+                var (path, fileResult) = PrepareRdpFile(RdpText);
 
                 Process.Start(new ProcessStartInfo
                 {
@@ -140,7 +139,13 @@ namespace RdpDisplayPicker
                     UseShellExecute = false,
                 });
 
-                StatusText = $"RDPを起動しました: {path}";
+                var fileStatus = fileResult switch
+                {
+                    RdpFileResult.Reused => "既存のRDP構成ファイルを再利用しました",
+                    RdpFileResult.Repaired => "RDP構成ファイルを修復しました",
+                    _ => "RDP構成ファイルを作成しました",
+                };
+                StatusText = $"{fileStatus}: {path}";
             }
             catch (Exception ex)
             {
@@ -462,9 +467,51 @@ namespace RdpDisplayPicker
             return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(displaySignature)))[..16];
         }
 
+        private static (string Path, RdpFileResult Result) PrepareRdpFile(string rdpText)
+        {
+            var directory = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "RdpDisplayPicker",
+                "Connections");
+            Directory.CreateDirectory(directory);
+
+            var contentHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rdpText)));
+            var path = System.IO.Path.Combine(directory, $"RdpDisplayPicker-{contentHash}.rdp");
+            var fileExisted = File.Exists(path);
+
+            if (fileExisted)
+            {
+                try
+                {
+                    if (File.ReadAllText(path, Encoding.Unicode) == rdpText)
+                    {
+                        return (path, RdpFileResult.Reused);
+                    }
+                }
+                catch (IOException)
+                {
+                    // Try to repair the file by overwriting it below.
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    // Try to repair the file by overwriting it below.
+                }
+            }
+
+            File.WriteAllText(path, rdpText, Encoding.Unicode);
+            return (path, fileExisted ? RdpFileResult.Repaired : RdpFileResult.Created);
+        }
+
         private void OnPropertyChanged(string propertyName)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
+        private enum RdpFileResult
+        {
+            Created,
+            Reused,
+            Repaired,
         }
     }
 
